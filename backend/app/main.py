@@ -22,7 +22,8 @@ app = FastAPI(
 )
 
 # Configure CORS
-origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+from .config import settings
+origins = settings.get_cors_origins()
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,9 +53,11 @@ async def root():
         "health": "/health"
     }
 
-# API Routes (will be added in subsequent steps)
+# API Routes
+from .routers import books
+
+app.include_router(books.router, prefix="/books", tags=["books"])
 # app.include_router(auth_router, prefix="/auth", tags=["authentication"])
-# app.include_router(books_router, prefix="/books", tags=["books"])
 # app.include_router(chat_router, prefix="/chat", tags=["chat"])
 
 if __name__ == "__main__":

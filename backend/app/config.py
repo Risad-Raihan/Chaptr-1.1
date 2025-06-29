@@ -5,7 +5,8 @@ Manages environment variables and application settings.
 
 import os
 from typing import List
-from pydantic import BaseSettings, validator
+from pydantic_settings import BaseSettings
+from pydantic import field_validator, Field
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -38,40 +39,27 @@ class Settings(BaseSettings):
     port: int = 8000
     
     # CORS
-    allowed_origins: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     
-    @validator("allowed_origins", pre=True)
-    def parse_cors_origins(cls, value):
-        """Parse CORS origins from string or list."""
-        if isinstance(value, str):
-            return [origin.strip() for origin in value.split(",")]
-        return value
+    def get_cors_origins(self) -> List[str]:
+        """Get CORS origins as a list."""
+        if isinstance(self.allowed_origins, str):
+            return [origin.strip() for origin in self.allowed_origins.split(",")]
+        return self.allowed_origins
     
-    @validator("google_api_key")
+    @field_validator("google_api_key")
+    @classmethod
     def validate_google_api_key(cls, value):
         """Validate Google API key is provided."""
         if not value:
             print("Warning: GOOGLE_API_KEY not set. RAG functionality will be limited.")
         return value
     
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-        
-        # Map environment variable names
-        fields = {
-            "database_url": {"env": "DATABASE_URL"},
-            "secret_key": {"env": "SECRET_KEY"},
-            "google_api_key": {"env": "GOOGLE_API_KEY"},
-            "upload_dir": {"env": "UPLOAD_DIR"},
-            "max_file_size_mb": {"env": "MAX_FILE_SIZE_MB"},
-            "chroma_persist_dir": {"env": "CHROMA_PERSIST_DIR"},
-            "debug": {"env": "DEBUG"},
-            "host": {"env": "HOST"},
-            "port": {"env": "PORT"},
-            "allowed_origins": {"env": "ALLOWED_ORIGINS"},
-        }
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": False,
+    }
 
 # Global settings instance
 settings = Settings()

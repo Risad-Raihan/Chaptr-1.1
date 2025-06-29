@@ -45,6 +45,8 @@ def get_db() -> Session:
 def create_tables():
     """Create all database tables."""
     try:
+        # Import models to register them with Base
+        from . import models
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")
     except Exception as e:
