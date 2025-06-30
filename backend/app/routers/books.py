@@ -3,19 +3,20 @@ Books API router for file upload and book management.
 Handles PDF/ePub upload, validation, and book metadata.
 """
 
-from fastapi import APIRouter, File, UploadFile, Depends, HTTPException, status
+from fastapi import APIRouter, File, UploadFile, Depends, HTTPException, status, Body
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import os
 import uuid
 import mimetypes
 from pathlib import Path
 
 from ..database import get_db
-from ..models import Book, User
+from ..models import Book, User, BookChunk
 from ..config import settings
 from ..services.text_extraction import TextExtractionService
+from ..services.rag import create_rag_service
 
 router = APIRouter()
 
@@ -301,4 +302,251 @@ async def process_book(book_id: int, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error processing book: {str(e)}"
+        )
+
+# =============================================================================
+# RAG ENDPOINTS - Intelligent Book Conversation System
+# =============================================================================
+
+@router.post("/{book_id}/rag-process")
+async def process_book_for_rag(book_id: int, db: Session = Depends(get_db)):
+    """Process a book for RAG: chunking + embedding generation."""
+    
+    try:
+        book = db.query(Book).filter(Book.id == book_id).first()
+        
+        if not book:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Book not found"
+            )
+        
+        if not book.cleaned_text:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Book must be processed (text extracted) before RAG processing"
+            )
+        
+        if book.is_embedded:
+            return {
+                "success": True,
+                "message": "Book already processed for RAG",
+                "book_id": book.id,
+                "chunk_count": book.chunk_count,
+                "embedding_model": book.embedding_model
+            }
+        
+        # Initialize RAG service
+        rag_service = create_rag_service()
+        
+        # Process book for RAG
+        result = rag_service.process_book_for_rag(book_id, book.cleaned_text, db)
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error processing book for RAG: {str(e)}"
+        )
+
+@router.post("/{book_id}/chat")
+async def chat_with_book(
+    book_id: int,
+    query: str = Body(..., embed=True),
+    conversation_history: List[dict] = Body(default=[], embed=True),
+    top_k: int = Body(default=5, embed=True),
+    db: Session = Depends(get_db)
+):
+    """Chat with a book using RAG-powered AI responses."""
+    
+    try:
+        book = db.query(Book).filter(Book.id == book_id).first()
+        
+        if not book:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Book not found"
+            )
+        
+        if not book.is_embedded:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Book must be processed for RAG before chatting"
+            )
+        
+        # Initialize RAG service
+        rag_service = create_rag_service()
+        
+        # Get response from RAG pipeline
+        response = rag_service.chat_with_book(
+            book_id=book_id,
+            query=query,
+            db=db,
+            conversation_history=conversation_history,
+            top_k=top_k
+        )
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error in book chat: {str(e)}"
+        )
+
+@router.get("/{book_id}/search")
+async def search_book_content(
+    book_id: int,
+    query: str,
+    top_k: int = 5,
+    chapter: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """Search for specific content within a book using semantic similarity."""
+    
+    try:
+        book = db.query(Book).filter(Book.id == book_id).first()
+        
+        if not book:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Book not found"
+            )
+        
+        if not book.is_embedded:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Book must be processed for RAG before searching"
+            )
+        
+        # Initialize RAG service
+        rag_service = create_rag_service()
+        
+        # Search book content
+        results = rag_service.search_book_content(
+            book_id=book_id,
+            query=query,
+            top_k=top_k,
+            chapter_filter=chapter
+        )
+        
+        return {
+            "success": True,
+            "query": query,
+            "book_title": book.title,
+            "results_count": len(results),
+            "results": results
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error searching book content: {str(e)}"
+        )
+
+@router.get("/{book_id}/summary")
+async def get_book_summary(book_id: int, db: Session = Depends(get_db)):
+    """Generate an AI-powered summary of the book."""
+    
+    try:
+        book = db.query(Book).filter(Book.id == book_id).first()
+        
+        if not book:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Book not found"
+            )
+        
+        if not book.is_embedded:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Book must be processed for RAG before summarization"
+            )
+        
+        # Initialize RAG service
+        rag_service = create_rag_service()
+        
+        # Generate summary
+        summary_result = rag_service.get_book_summary(book_id, db)
+        
+        return summary_result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating book summary: {str(e)}"
+        )
+
+@router.get("/{book_id}/chunks")
+async def get_book_chunks(
+    book_id: int,
+    page: int = 1,
+    limit: int = 20,
+    db: Session = Depends(get_db)
+):
+    """Get text chunks for a book with pagination."""
+    
+    try:
+        book = db.query(Book).filter(Book.id == book_id).first()
+        
+        if not book:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Book not found"
+            )
+        
+        # Calculate offset
+        offset = (page - 1) * limit
+        
+        # Get chunks with pagination
+        chunks = db.query(BookChunk)\
+            .filter(BookChunk.book_id == book_id)\
+            .order_by(BookChunk.chunk_index)\
+            .offset(offset)\
+            .limit(limit)\
+            .all()
+        
+        # Get total count
+        total_chunks = db.query(BookChunk)\
+            .filter(BookChunk.book_id == book_id)\
+            .count()
+        
+        return {
+            "success": True,
+            "book_id": book_id,
+            "book_title": book.title,
+            "page": page,
+            "limit": limit,
+            "total_chunks": total_chunks,
+            "total_pages": (total_chunks + limit - 1) // limit,
+            "chunks": [
+                {
+                    "id": chunk.id,
+                    "chunk_index": chunk.chunk_index,
+                    "content": chunk.content,
+                    "token_count": chunk.token_count,
+                    "chapter_title": chunk.chapter_title,
+                    "chapter_number": chunk.chapter_number,
+                    "keywords": chunk.keywords,
+                    "created_at": chunk.created_at.isoformat() if chunk.created_at else None
+                }
+                for chunk in chunks
+            ]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching book chunks: {str(e)}"
         ) 
