@@ -34,6 +34,7 @@ services:
       HOST: 0.0.0.0
       PORT: 8000
       ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      GOOGLE_API_KEY: AIzaSyA3Pd3lpzpvFmSaczIIvPzOU-6m1tujg7Q
     volumes:
       - ./backend:/app
       - backend_uploads:/app/uploads
@@ -55,6 +56,7 @@ services:
     container_name: chaptr_frontend
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_API_URL: http://backend:8000
       NEXTAUTH_URL: http://localhost:3000
       NEXTAUTH_SECRET: your-nextauth-secret-here
     volumes:

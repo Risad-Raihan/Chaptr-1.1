@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     
     # Google Gemini API
     google_api_key: str = ""
+    google_client_id: str = ""
+    google_client_secret: str = ""
     
     # File Upload
     upload_dir: str = "./uploads"

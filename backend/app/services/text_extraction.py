@@ -27,6 +27,7 @@ class TextExtractionService:
         Returns: (extracted_text, metadata)
         """
         try:
+            logger.info(f"Attempting to open PDF file: {file_path}")
             doc = fitz.open(file_path)
             text_content = ""
             metadata = {
@@ -37,19 +38,30 @@ class TextExtractionService:
                 "subject": doc.metadata.get("subject", "")
             }
             
+            logger.info(f"PDF opened successfully. Page count: {metadata['page_count']}")
+            
             # Extract text from each page
             for page_num in range(len(doc)):
-                page = doc[page_num]
-                text_content += f"\n--- PAGE {page_num + 1} ---\n"
-                text_content += page.get_text()
+                try:
+                    page = doc[page_num]
+                    text_content += f"\n--- PAGE {page_num + 1} ---\n"
+                    text_content += page.get_text()
+                    logger.debug(f"Successfully extracted text from page {page_num + 1}")
+                except Exception as page_error:
+                    logger.error(f"Error extracting text from page {page_num + 1}: {str(page_error)}")
+                    raise
             
             doc.close()
+            logger.info("PDF processing completed successfully")
             
             return text_content, metadata
             
         except Exception as e:
-            logger.error(f"Error extracting text from PDF {file_path}: {e}")
-            raise Exception(f"PDF extraction failed: {e}")
+            logger.error(f"Error extracting text from PDF {file_path}: {str(e)}")
+            logger.error(f"File exists: {os.path.exists(file_path)}")
+            logger.error(f"File permissions: {oct(os.stat(file_path).st_mode)[-3:]}")
+            logger.error(f"File size: {os.path.getsize(file_path)} bytes")
+            raise Exception(f"PDF extraction failed: {str(e)}")
     
     @staticmethod
     def extract_text_from_epub(file_path: str) -> Tuple[str, dict]:

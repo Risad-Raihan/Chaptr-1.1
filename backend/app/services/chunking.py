@@ -116,8 +116,7 @@ class SmartChunker:
     def split_into_sentences(self, text: str) -> List[str]:
         """Split text into sentences using regex."""
         # Enhanced sentence splitting pattern
-        sentence_pattern = r'(?<=[.!?])\s+(?=[A-Z])'
-        sentences = re.split(sentence_pattern, text)
+        sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text)
         return [s.strip() for s in sentences if s.strip()]
     
     def create_chunk_with_overlap(self, sentences: List[str], start_idx: int, target_tokens: int) -> Tuple[str, int]:

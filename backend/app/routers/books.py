@@ -11,12 +11,17 @@ import os
 import uuid
 import mimetypes
 from pathlib import Path
+import logging
+import traceback
 
 from ..database import get_db
 from ..models import Book, User, BookChunk
 from ..config import settings
 from ..services.text_extraction import TextExtractionService
 from ..services.rag import create_rag_service
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -90,36 +95,49 @@ async def upload_book(
         # Extract basic metadata
         file_type = Path(file.filename).suffix.lower().replace('.', '')
         
-        # Create book record in database
-        # For now, we'll create without a user (user_id = 1 as placeholder)
-        # TODO: Replace with actual user authentication
-        book = Book(
-            title=Path(file.filename).stem,  # Use filename as title for now
-            filename=file.filename,
-            file_path=file_path,
-            file_size=file_size,
-            file_type=file_type,
-            processing_status="pending",
-            owner_id=1  # Placeholder - will be replaced with real user auth
-        )
-        
-        db.add(book)
-        db.commit()
-        db.refresh(book)
-        
-        return {
-            "success": True,
-            "message": "Book uploaded successfully",
-            "book_id": book.id,
-            "filename": file.filename,
-            "file_size": file_size,
-            "file_type": file_type,
-            "processing_status": book.processing_status
-        }
-        
+        try:
+            # Create book record in database
+            book = Book(
+                title=Path(file.filename).stem,  # Use filename as title for now
+                filename=file.filename,
+                file_path=file_path,
+                file_size=file_size,
+                file_type=file_type,
+                processing_status="pending",
+                owner_id=1  # Placeholder - will be replaced with real user auth
+            )
+            
+            db.add(book)
+            db.commit()
+            db.refresh(book)
+            
+            return {
+                "success": True,
+                "message": "Book uploaded successfully",
+                "book_id": book.id,
+                "filename": file.filename,
+                "file_size": file_size,
+                "file_type": file_type,
+                "processing_status": book.processing_status
+            }
+            
+        except Exception as db_error:
+            # Log database error details
+            logger.error(f"Database error while creating book record: {str(db_error)}\nTraceback:\n{traceback.format_exc()}")
+            # Clean up the uploaded file since database operation failed
+            try:
+                os.remove(file_path)
+            except Exception as cleanup_error:
+                logger.error(f"Failed to clean up file after database error: {str(cleanup_error)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Database error: {str(db_error)}"
+            )
+            
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Unexpected error in upload_book: {str(e)}\nTraceback:\n{traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error uploading file: {str(e)}"
